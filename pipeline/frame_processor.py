@@ -28,5 +28,5 @@ def process_frame(frame: Any, cloud_enabled: bool = CLOUD_ENABLED) -> None:
 
         record = vehicle_exit(number)
         if record and cloud_enabled and sync_to_cloud(record):
-            mark_synced(number)
+            mark_synced(record["db_id"])
             print(f"{number} synced to cloud.")
