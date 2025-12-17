@@ -1,7 +1,8 @@
+import json
 from pathlib import Path
 from typing import Optional
 
-from config import FIREBASE_CREDENTIALS
+from config import FIREBASE_CREDENTIALS, FIREBASE_CREDENTIALS_JSON
 
 try:
     import firebase_admin
@@ -15,6 +16,34 @@ else:
 
 
 _db: Optional["firestore.Client"] = None
+_resolved_cred_path: Optional[Path] = None
+
+
+def _resolve_credentials_file() -> Path:
+    cred_path = Path(FIREBASE_CREDENTIALS)
+    if cred_path.exists():
+        return cred_path
+
+    if FIREBASE_CREDENTIALS_JSON:
+        global _resolved_cred_path
+        if _resolved_cred_path and _resolved_cred_path.exists():
+            return _resolved_cred_path
+
+        try:
+            parsed = json.loads(FIREBASE_CREDENTIALS_JSON)
+        except json.JSONDecodeError as exc:  # pragma: no cover - defensive guard
+            raise ValueError("FIREBASE_CREDENTIALS_JSON is not valid JSON.") from exc
+
+        cache_dir = Path(".cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = cache_dir / "firebase_credentials.json"
+        temp_path.write_text(json.dumps(parsed))
+        _resolved_cred_path = temp_path
+        return temp_path
+
+    raise FileNotFoundError(
+        f"Firebase credentials file not found at {cred_path} and no FIREBASE_CREDENTIALS_JSON value provided."
+    )
 
 
 def init_firebase() -> "firestore.Client":
@@ -30,11 +59,7 @@ def init_firebase() -> "firestore.Client":
             "Install it with 'pip install firebase-admin'."
         ) from FIREBASE_IMPORT_ERROR
 
-    cred_path = Path(FIREBASE_CREDENTIALS)
-    if not cred_path.exists():
-        raise FileNotFoundError(
-            f"Firebase credentials file not found at {cred_path}."
-        )
+    cred_path = _resolve_credentials_file()
 
     if not firebase_admin._apps:
         cred = credentials.Certificate(str(cred_path))
