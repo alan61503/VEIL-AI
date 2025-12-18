@@ -3,6 +3,31 @@
 from pathlib import Path
 from typing import List
 
+import cv2
+
+if not hasattr(cv2, "setNumThreads"):
+    cv2.setNumThreads = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+if not hasattr(cv2, "imshow"):
+    cv2.imshow = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+if not hasattr(cv2, "waitKey"):
+    cv2.waitKey = lambda *args, **kwargs: 1  # type: ignore[attr-defined]
+if not hasattr(cv2, "destroyAllWindows"):
+    cv2.destroyAllWindows = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+if not hasattr(cv2, "namedWindow"):
+    cv2.namedWindow = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+if not hasattr(cv2, "startWindowThread"):
+    cv2.startWindowThread = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+
+_cv2_fallback_consts = {
+    "IMREAD_COLOR": 1,
+    "IMREAD_GRAYSCALE": 0,
+    "IMREAD_UNCHANGED": -1,
+    "IMWRITE_JPEG_QUALITY": 1,
+}
+for _name, _value in _cv2_fallback_consts.items():
+    if not hasattr(cv2, _name):
+        setattr(cv2, _name, _value)
+
 import requests
 from ultralytics import YOLO
 

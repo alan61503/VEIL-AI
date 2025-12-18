@@ -31,10 +31,10 @@ _plate_classes = os.getenv("PLATE_CLASS_IDS", "0")
 PLATE_CLASS_IDS = [int(cls.strip()) for cls in _plate_classes.split(",") if cls.strip()]
 PLATE_CONFIDENCE = float(os.getenv("PLATE_CONFIDENCE", "0.25"))
 PLATE_MAX_RESULTS = int(os.getenv("PLATE_MAX_RESULTS", "3"))
-PLATE_MARGIN = float(os.getenv("PLATE_MARGIN", "0.12"))
+PLATE_MARGIN = float(os.getenv("PLATE_MARGIN", "0.18"))
 PLATE_MIN_RATIO = float(os.getenv("PLATE_MIN_RATIO", "2.4"))
 PLATE_TALL_RATIO = float(os.getenv("PLATE_TALL_RATIO", "1.8"))
-PLATE_TALL_PAD = float(os.getenv("PLATE_TALL_PAD", "0.75"))
+PLATE_TALL_PAD = float(os.getenv("PLATE_TALL_PAD", "1.0"))
 PLATE_TALL_MULTIPLIER = float(os.getenv("PLATE_TALL_MULTIPLIER", "2.5"))
 PLATE_TALL_TARGET_RATIO = float(os.getenv("PLATE_TALL_TARGET_RATIO", "1.5"))
 PLATE_TALL_WIDTH_PAD = float(os.getenv("PLATE_TALL_WIDTH_PAD", "0.18"))
@@ -45,10 +45,10 @@ PLATE_MAX_RATIO = float(os.getenv("PLATE_MAX_RATIO", "6.5"))
 
 default_plate_regex = r"^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$"
 PLATE_REGEX = os.getenv("PLATE_REGEX", default_plate_regex)
-MIN_PLATE_LENGTH = int(os.getenv("MIN_PLATE_LENGTH", "8"))
-PLATE_MAX_LENGTH = int(os.getenv("PLATE_MAX_LENGTH", "10"))
-PLATE_MIN_DIGITS = int(os.getenv("PLATE_MIN_DIGITS", "4"))
-PLATE_REQUIRE_REGEX = os.getenv("PLATE_REQUIRE_REGEX", "true").lower() == "true"
+MIN_PLATE_LENGTH = int(os.getenv("MIN_PLATE_LENGTH", "6"))
+PLATE_MAX_LENGTH = int(os.getenv("PLATE_MAX_LENGTH", "12"))
+PLATE_MIN_DIGITS = int(os.getenv("PLATE_MIN_DIGITS", "3"))
+PLATE_REQUIRE_REGEX = os.getenv("PLATE_REQUIRE_REGEX", "false").lower() == "true"
 MIN_OCR_CONFIDENCE = float(os.getenv("MIN_OCR_CONFIDENCE", "0.45"))
 MIN_PLATE_HITS = int(os.getenv("MIN_PLATE_HITS", "2"))
 
