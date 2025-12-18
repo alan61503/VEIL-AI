@@ -48,7 +48,10 @@ PLATE_REGEX = os.getenv("PLATE_REGEX", default_plate_regex)
 MIN_PLATE_LENGTH = int(os.getenv("MIN_PLATE_LENGTH", "6"))
 PLATE_MAX_LENGTH = int(os.getenv("PLATE_MAX_LENGTH", "12"))
 PLATE_MIN_DIGITS = int(os.getenv("PLATE_MIN_DIGITS", "3"))
-PLATE_REQUIRE_REGEX = os.getenv("PLATE_REQUIRE_REGEX", "false").lower() == "true"
+PLATE_REQUIRE_REGEX = os.getenv("PLATE_REQUIRE_REGEX", "true").lower() == "true"
 MIN_OCR_CONFIDENCE = float(os.getenv("MIN_OCR_CONFIDENCE", "0.45"))
 MIN_PLATE_HITS = int(os.getenv("MIN_PLATE_HITS", "2"))
+
+ENTRY_DEDUP_WINDOW_SECONDS = int(os.getenv("ENTRY_DEDUP_WINDOW_SECONDS", "4"))
+ENTRY_DEDUP_SIMILARITY = float(os.getenv("ENTRY_DEDUP_SIMILARITY", "0.92"))
 

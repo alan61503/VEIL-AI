@@ -607,17 +607,28 @@ def read_plate(plate_img):
     combined = None
 
     if choice:
-        corrected = _post_correct(choice[1])
-        if not (PLATE_PATTERN and PLATE_PATTERN.fullmatch(corrected)):
-            combined = _combine_candidates(candidates)
-            if combined:
-                combined_corrected = _post_correct(combined[0])
-                if _candidate_score(combined_corrected, combined[1]) > _candidate_score(corrected, choice[0]):
-                    return combined_corrected, combined[1]
-        return corrected, choice[0]
+        finalized = _finalize_result(choice)
+        if finalized:
+            return finalized
+
+        combined = _combine_candidates(candidates)
+        if combined:
+            combined_final = _finalize_result((combined[1], combined[0]))
+            if combined_final:
+                return combined_final
+        return None
 
     combined = _combine_candidates(candidates)
     if combined:
-        corrected = _post_correct(combined[0])
-        return corrected, combined[1]
+        return _finalize_result((combined[1], combined[0]))
     return None
+
+
+def _finalize_result(candidate: tuple[float, str]) -> tuple[str, float] | None:
+    confidence, text = candidate
+    corrected = _post_correct(text)
+    if not corrected:
+        return None
+    if not _valid_candidate(corrected):
+        return None
+    return corrected, confidence
