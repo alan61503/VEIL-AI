@@ -1,20 +1,21 @@
+"""YOLO-based plate detection with dynamic cropping heuristics."""
+
 from pathlib import Path
 from typing import List
 
 import requests
 from ultralytics import YOLO
 
-<<<<<<< HEAD
 from config import (
     PLATE_CLASS_IDS,
     PLATE_CONFIDENCE,
+    PLATE_FORCE_TALL,
     PLATE_MARGIN,
     PLATE_MAX_RATIO,
     PLATE_MAX_RESULTS,
     PLATE_MIN_RATIO,
     PLATE_MODEL_PATH,
     PLATE_MODEL_URL,
-    PLATE_FORCE_TALL,
     PLATE_TALL_MULTIPLIER,
     PLATE_TALL_PAD,
     PLATE_TALL_RATIO,
@@ -23,9 +24,6 @@ from config import (
     PLATE_TALL_WIDTH_PAD,
     PLATE_TOP_EXTRA,
 )
-=======
-from config import PLATE_CLASS_IDS, PLATE_CONFIDENCE, PLATE_MODEL_PATH, PLATE_MODEL_URL
->>>>>>> parent of 1b12b7d (.)
 from detection.fallback import contour_detect_plates
 
 _model_path = Path(PLATE_MODEL_PATH)
@@ -68,27 +66,46 @@ def _detect_with_yolo(frame) -> List:
     if boxes is None or len(boxes) == 0:
         return []
 
-    plate_boxes = []
     height, width = frame.shape[:2]
 
-    for box in boxes:
-        cls_id = int(box.cls[0])
+    try:
+        xyxy_list = boxes.xyxy.tolist()
+        cls_list = [int(c) for c in boxes.cls.tolist()]
+        conf_list = boxes.conf.tolist()
+    except Exception:  # pragma: no cover - tensor conversion fallback
+        xyxy_list, cls_list, conf_list = [], [], []
+        for box in boxes:
+            xyxy_list.append(box.xyxy[0].tolist())
+            cls_list.append(int(box.cls[0]))
+            conf_list.append(float(box.conf[0]))
+
+    detections = sorted(
+        zip(xyxy_list, cls_list, conf_list),
+        key=lambda item: item[2],
+        reverse=True,
+    )
+
+    plate_boxes = []
+    for xyxy, cls_id, conf in detections[:PLATE_MAX_RESULTS]:
         if PLATE_CLASS_IDS and cls_id not in PLATE_CLASS_IDS:
             continue
 
-        crop = _crop(frame, box.xyxy[0].tolist(), width, height)
+        crop = _crop(frame, xyxy, width, height, PLATE_MARGIN)
         if crop is not None:
             plate_boxes.append(crop)
 
     return plate_boxes
 
 
-def _crop(frame, xyxy, width: int, height: int):
+def _crop(frame, xyxy, width: int, height: int, margin: float = 0.0):
     x1, y1, x2, y2 = xyxy
-    x1 = max(0, min(width, int(x1)))
-    y1 = max(0, min(height, int(y1)))
-    x2 = max(0, min(width, int(x2)))
-    y2 = max(0, min(height, int(y2)))
+    pad_x = int((x2 - x1) * margin)
+    pad_y = int((y2 - y1) * margin)
+
+    x1 = max(0, min(width, int(x1) - pad_x))
+    y1 = max(0, min(height, int(y1) - pad_y))
+    x2 = max(0, min(width, int(x2) + pad_x))
+    y2 = max(0, min(height, int(y2) + pad_y))
 
     if x2 <= x1 or y2 <= y1:
         return None
@@ -119,10 +136,11 @@ def _expand_for_ratio(x1, y1, x2, y2, width, height):
             y2 = min(height, y2 + lower_pad)
             box_h = max(1, y2 - y1)
             ratio = box_w / float(box_h)
-            extra_top = int((y2 - y1) * PLATE_TOP_EXTRA)
-            if extra_top > 0:
-                y1 = max(0, y1 - extra_top)
-                box_h = max(1, y2 - y1)
+
+        extra_top = int((y2 - y1) * PLATE_TOP_EXTRA)
+        if extra_top > 0:
+            y1 = max(0, y1 - extra_top)
+            box_h = max(1, y2 - y1)
 
     if ratio < PLATE_MIN_RATIO:
         needed = int(((PLATE_MIN_RATIO * box_h) - box_w) / 2)

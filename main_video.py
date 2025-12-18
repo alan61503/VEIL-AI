@@ -1,5 +1,13 @@
-import cv2
 from pathlib import Path
+import warnings
+
+import cv2
+warnings.filterwarnings(
+    "ignore",
+    message=".*'pin_memory' argument is set as true but no accelerator is found.*",
+    category=UserWarning,
+    module="torch.utils.data.dataloader",
+)
 
 from config import CLOUD_ENABLED
 from cloud.sync_worker import sync_pending
@@ -25,7 +33,7 @@ def process_images(image_dir: Path = IMAGE_DIR) -> None:
             print(f"Skipping unreadable image: {image_path}")
             continue
 
-        process_frame(frame)
+        process_frame(frame, min_plate_hits=1)
 
     print("Image processing finished.")
 

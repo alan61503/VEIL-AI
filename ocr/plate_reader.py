@@ -1,57 +1,134 @@
+"""OCR helpers for extracting reliable plate strings from cropped regions."""
+
 import re
+from typing import Iterable, List
 
 import cv2
 import easyocr
-import numpy as np
+
+from config import (
+    MIN_OCR_CONFIDENCE,
+    MIN_PLATE_LENGTH,
+    PLATE_MAX_LENGTH,
+    PLATE_MIN_DIGITS,
+    PLATE_REGEX,
+    PLATE_REQUIRE_REGEX,
+)
 
 reader = easyocr.Reader(['en'], gpu=False)
-<<<<<<< HEAD
 PLATE_PATTERN = re.compile(PLATE_REGEX) if PLATE_REGEX else None
 ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 FAST_VARIANT_COUNT = 2
 MIN_VARIANT_DIM = 96
 MAX_VARIANT_DIM = 320
 LINE_GAP_FRACTION = 0.2
-=======
->>>>>>> parent of 1b12b7d (.)
+PARAGRAPH_FALLBACK_CONF = 0.45
+ROTATION_ANGLES = (-15, -10, -5, 5, 10, 15)
 
 
-def _preprocess(plate_img):
-    gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.bilateralFilter(gray, 11, 17, 17)
-    thresh = cv2.adaptiveThreshold(
-        gray,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        31,
-        2,
-    )
-<<<<<<< HEAD
+def _scale_variant(img):
+    height, width = img.shape[:2]
+    if height == 0 or width == 0:
+        return img
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
-    inverted = cv2.bitwise_not(adaptive)
-    morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    closed = cv2.morphologyEx(adaptive, cv2.MORPH_CLOSE, morph_kernel)
+    largest = max(height, width)
+    smallest = min(height, width)
+    scale = 1.0
 
-    return [gray, adaptive, inverted, clahe, closed]
-=======
-    upscaled = cv2.resize(thresh, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
-    return upscaled
->>>>>>> parent of 1b12b7d (.)
+    if largest > MAX_VARIANT_DIM:
+        scale = MAX_VARIANT_DIM / float(largest)
+    elif smallest < MIN_VARIANT_DIM and smallest > 0:
+        scale = min(1.5, MIN_VARIANT_DIM / float(smallest))
+
+    if scale == 1.0:
+        return img
+
+    new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+    return cv2.resize(img, new_size, interpolation=interpolation)
+
+
+def _rotate(img, angle: float):
+    h, w = img.shape[:2]
+    if h == 0 or w == 0:
+        return img
+    center = (w // 2, h // 2)
+    mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+    return cv2.warpAffine(img, mat, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
+def _sharpen(gray):
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    return cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
+
+
+def _preprocess_variants(plate_img) -> List:
+    scaled = _scale_variant(plate_img)
+
+    variants: List = []
+    bases = [scaled] + [_rotate(scaled, ang) for ang in ROTATION_ANGLES]
+
+    for base in bases:
+        gray = cv2.cvtColor(base, cv2.COLOR_BGR2GRAY)
+        gray = cv2.bilateralFilter(gray, 9, 17, 17)
+        sharp = _sharpen(gray)
+
+        adaptive = cv2.adaptiveThreshold(
+            gray,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,
+            2,
+        )
+
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+        inverted = cv2.bitwise_not(adaptive)
+        morph_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        closed = cv2.morphologyEx(adaptive, cv2.MORPH_CLOSE, morph_kernel)
+
+        variants.extend([gray, sharp, adaptive, inverted, clahe, closed])
+
+    return variants
 
 
 def _clean_text(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", text.upper())
 
 
-<<<<<<< HEAD
 def _valid_candidate(text: str) -> bool:
-    if len(text) < MIN_PLATE_LENGTH:
+    length = len(text)
+    if length < MIN_PLATE_LENGTH or length > PLATE_MAX_LENGTH:
         return False
-    if PLATE_PATTERN and not PLATE_PATTERN.fullmatch(text):
+
+    digit_count = sum(ch.isdigit() for ch in text)
+    if digit_count < PLATE_MIN_DIGITS:
         return False
-    return True
+
+    regex_ok = PLATE_PATTERN.fullmatch(text) if PLATE_PATTERN else True
+    heuristics_ok = _basic_plate_heuristics(text, digit_count)
+
+    if PLATE_PATTERN:
+        if regex_ok:
+            return True
+        if PLATE_REQUIRE_REGEX:
+            return False
+
+    return heuristics_ok
+
+
+def _basic_plate_heuristics(text: str, digit_count: int) -> bool:
+    letter_count = sum(ch.isalpha() for ch in text)
+    if letter_count == 0 or digit_count == 0:
+        return False
+
+    ratio = digit_count / max(1, letter_count)
+    if ratio < 0.25 or ratio > 4.0:
+        return False
+
+    prefix_letters = len(text) >= 2 and text[:2].isalpha()
+    suffix_digits = len(text) >= 2 and text[-2:].isdigit()
+    return prefix_letters or suffix_digits
 
 
 def _read_variant(img) -> List[tuple[float, str]]:
@@ -78,12 +155,12 @@ def _read_variant(img) -> List[tuple[float, str]]:
 
     hits.extend(_merge_multiline(line_entries, line_gap))
 
-    paragraph_text = reader.readtext(img, detail=0, paragraph=True)
-    for text in paragraph_text:
-        cleaned = _clean_text(text)
-        if not cleaned:
-            continue
-        hits.append((0.45, cleaned))
+    # Skip paragraph-mode fallback when strict regex is required to avoid loose text
+    if not PLATE_REQUIRE_REGEX:
+        for text in reader.readtext(img, detail=0, paragraph=True):
+            cleaned = _clean_text(text)
+            if cleaned:
+                hits.append((PARAGRAPH_FALLBACK_CONF, cleaned))
 
     return sorted(hits, key=lambda item: item[0], reverse=True)
 
@@ -165,29 +242,15 @@ def _select_best(candidates: List[tuple[float, str]]):
     return max(candidates, key=lambda c: (len(c[1]), c[0]))
 
 
-=======
->>>>>>> parent of 1b12b7d (.)
 def read_plate(plate_img):
     if plate_img is None or plate_img.size == 0:
         return None
 
-    processed = _preprocess(plate_img)
-    results = reader.readtext(
-        processed,
-        detail=0,
-        allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-    )
+    variants = _preprocess_variants(plate_img)
+    candidates = _read_candidates(variants)
 
-<<<<<<< HEAD
     filtered = [c for c in candidates if _valid_candidate(c[1])]
-    choice = _select_best(filtered) or _select_best(candidates)
+    choice = _select_best(filtered)
     if choice:
         return choice[1], choice[0]
-=======
-    for text in results:
-        cleaned = _clean_text(text)
-        if len(cleaned) >= 4:
-            return cleaned
-
->>>>>>> parent of 1b12b7d (.)
     return None
