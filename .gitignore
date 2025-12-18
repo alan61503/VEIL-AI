@@ -1,0 +1,21 @@
+# Bytecode + caches
+__pycache__/
+*.py[cod]
+*.pyo
+.cache/
+*.cache/
+
+# Virtual environments / local config
+.venv/
+venv/
+.env
+
+# Ultralytics artifacts and large datasets
+runs/
+data/indian_lp/
+data/indian_lp.zip
+best.pt
+
+# Misc
+*.log
+*.tmp

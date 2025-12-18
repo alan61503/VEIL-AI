@@ -15,19 +15,41 @@ You can fine-tune a YOLO detector on the [Indian license plates with labels](htt
 	C:/btech/development/VEIL-AI/veilenv/Scripts/python.exe scripts/prepare_indian_lp_dataset.py
 	```
 
-	The script downloads the dataset via `kagglehub`, creates deterministic `train/val/test` splits under `data/indian_lp/`, and writes a YOLO `data.yaml` file.
+	The script downloads the dataset via `kagglehub`, creates deterministic `train/val/test` splits under `data/indian_lp/`, mirrors the original download to `data/indian_lp/raw/`, and writes both a YOLO `data.yaml` and a `summary.json` with useful counts.
 
 2. **Train with Ultralytics YOLO**
 
 	```bash
-	yolo detect train model=yolov8n.pt data=data/indian_lp/data.yaml epochs=50 imgsz=640
+	# Option A: call Ultralytics directly
+	yolo detect train model=yolov8n.pt data=data/indian_lp/data.yaml epochs=80 imgsz=640
+
+	# Option B: use the helper wrapper (adds AdamW + cosine LR + patience)
+	C:/btech/development/VEIL-AI/veilenv/Scripts/python.exe scripts/train_indian_lp.py \
+		 --model yolov8n.pt \
+		 --epochs 80 \
+		 --imgsz 640
 	```
 
 	Replace `yolov8n.pt` with any starting checkpoint. Final weights will be emitted under `runs/detect/.../weights/best.pt`.
 
-3. **Update the runtime model**
+3. **Validate + wire into VEIL**
 
-	Point `PLATE_MODEL_PATH` to the newly trained checkpoint (or copy it to `models/yolov8n-license-plate.pt`) and rerun `main_video.py` to evaluate accuracy improvements in the VEIL pipeline.
+	```bash
+	# Quick validation report on the held-out test split
+	yolo detect val model=runs/detect/<run-name>/weights/best.pt data=data/indian_lp/data.yaml split=test
+	# or use the helper if PowerShell quoting is painful
+	C:/btech/development/VEIL-AI/veilenv/Scripts/python.exe scripts/val_indian_lp.py \
+		--model runs/detect/<run-name>/weights/best.pt \
+		--split test --imgsz 640 --batch 16
+
+	# Update VEIL to use the refined detector
+	copy runs/detect/<run-name>/weights/best.pt models/yolov8n-license-plate.pt
+	# or set PLATE_MODEL_PATH directly in config.py / env vars
+	```
+
+	The latest YOLOv8n fine-tune (test split with 202 images) yields precision 0.995, recall 0.990, mAP50 0.995, and mAP50-95 0.865, confirming the new checkpoint surpasses the base detector.
+
+	Afterwards rerun `python main_video.py` (or the live camera pipeline) and compare plate detection accuracy + speed.
 
 ## Cloud sync configuration
 
