@@ -51,6 +51,19 @@ You can fine-tune a YOLO detector on the [Indian license plates with labels](htt
 
 	Afterwards rerun `python main_video.py` (or the live camera pipeline) and compare plate detection accuracy + speed.
 
+### Batch-testing detection + OCR on a labeled dataset
+
+To measure end-to-end accuracy on any folder of plate images:
+
+```bash
+python scripts/eval_plate_dataset.py \
+	--images path/to/plate/images \
+	--labels path/to/labels.csv \
+	--output reports/plate_eval.csv
+```
+
+The label file can be a CSV (`image,plate` columns) or JSON with the same keys. Add `--fallback-stem` if filenames already encode the ground truth text. The script reports detection hit rate, OCR exact-match rate, average similarity, and optionally writes a per-image CSV so you can inspect failures quickly.
+
 ## Cloud sync configuration
 
 By default the pipeline attempts to sync completed entries to Firebase Cloud Firestore. Provide credentials in one of two ways:
