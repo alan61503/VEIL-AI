@@ -64,6 +64,13 @@ python scripts/eval_plate_dataset.py \
 
 The label file can be a CSV (`image,plate` columns) or JSON with the same keys. Add `--fallback-stem` if filenames already encode the ground truth text. The script reports detection hit rate, OCR exact-match rate, average similarity, and optionally writes a per-image CSV so you can inspect failures quickly.
 
+### OCR engine configuration
+
+- **Default (Windows accuracy):** EasyOCR (PyTorch-based) remains the most reliable reader out of the box. Keep `OCR_ENGINE=easyocr` (default) for best results while you iterate on tuning.
+- **Optional lightweight mode:** set `OCR_ENGINE=tesseract` if you install `pytesseract` plus the Tesseract binary (`winget install tesseract-ocr.tesseract` on Windows or `sudo apt install tesseract-ocr` on Debian/Raspbian). Useful when you need a Pi-friendly footprint.
+- Additional knobs for Tesseract: `TESSERACT_CMD=C:/Program Files/Tesseract-OCR/tesseract.exe`, `TESSERACT_LANG`, `TESSERACT_PSM`, `TESSERACT_OEM`.
+- Regardless of the engine, regex-enforced post-processing only accepts valid Indian plate formats, so uncertain reads are dropped rather than logged as hallucinations.
+
 ## Cloud sync configuration
 
 By default the pipeline attempts to sync completed entries to Firebase Cloud Firestore. Provide credentials in one of two ways:

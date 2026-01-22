@@ -1,5 +1,5 @@
 """Shared frame processing logic for camera and video pipelines."""
-from typing import Any
+from typing import Any, Dict
 
 from config import CLOUD_ENABLED, MIN_PLATE_HITS
 from classification.plate_color import classify_plate_color
@@ -15,10 +15,19 @@ def process_frame(
     frame: Any,
     cloud_enabled: bool = CLOUD_ENABLED,
     min_plate_hits: int = MIN_PLATE_HITS,
-) -> None:
-    """Detect plates in a frame, persist entries, and sync exits when available."""
+    *,
+    dedupe_enabled: bool = True,
+    track_exits: bool = True,
+) -> Dict[str, Any]:
+    """Detect plates in a frame, persist entries, and return a summary."""
     plates = detect_plate(frame)
     required_hits = max(1, min_plate_hits)
+    summary: Dict[str, Any] = {
+        "detections": len(plates),
+        "recognized": [],
+        "entries": [],
+        "exits": [],
+    }
 
     for plate_img in plates:
         plate_read = read_plate(plate_img)
@@ -26,18 +35,25 @@ def process_frame(
             continue
 
         number, confidence = plate_read
+        summary["recognized"].append(number)
         vehicle_type = classify_plate_color(plate_img)
 
-        if number not in vehicle_log:
+        if number not in vehicle_log or not track_exits:
             if required_hits > 1:
                 if not register_plate_vote(number, confidence, required_hits=required_hits):
                     continue
-            vehicle_entry(number, vehicle_type)
+            vehicle_entry(number, vehicle_type, dedupe_enabled=dedupe_enabled)
+            summary["entries"].append(number)
             clear_plate_vote(number)
             continue
 
-        record = vehicle_exit(number)
-        if record and cloud_enabled and sync_to_cloud(record):
-            mark_synced(record["db_id"])
-            print(f"{number} synced to cloud.")
-            clear_plate_vote(number)
+        if track_exits:
+            record = vehicle_exit(number)
+            if record:
+                summary["exits"].append(number)
+                if cloud_enabled and sync_to_cloud(record):
+                    mark_synced(record["db_id"])
+                    print(f"{number} synced to cloud.")
+                clear_plate_vote(number)
+
+    return summary

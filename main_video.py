@@ -27,15 +27,44 @@ def process_images(image_dir: Path = IMAGE_DIR) -> None:
         print(f"No images found in {image_dir}.")
         return
 
-    for image_path in image_paths:
+    total = len(image_paths)
+    recognized_hits = 0
+    saved_entries = 0
+
+    for index, image_path in enumerate(image_paths, start=1):
+        print(f"[{index}/{total}] {image_path.name}")
         frame = cv2.imread(str(image_path))
         if frame is None:
             print(f"Skipping unreadable image: {image_path}")
             continue
 
-        process_frame(frame, min_plate_hits=1)
+        summary = process_frame(
+            frame,
+            min_plate_hits=1,
+            dedupe_enabled=False,
+            track_exits=False,
+        )
 
-    print("Image processing finished.")
+        recognized = summary.get("recognized", [])
+        entries = summary.get("entries", [])
+        detections = summary.get("detections", 0)
+
+        if recognized:
+            recognized_hits += 1
+            saved_entries += len(entries)
+            entry_note = f"saved: {', '.join(entries)}" if entries else "not persisted (duplicate/regex)"
+            print(f"    Plates read: {', '.join(recognized)} ({entry_note})")
+        else:
+            if detections > 0:
+                print("    Plate detected but OCR rejected the text.")
+            else:
+                print("    No plate detected in this frame.")
+
+    print("\n===== Image Batch Summary =====")
+    print(f"Images processed : {total}")
+    print(f"OCR hits         : {recognized_hits}")
+    print(f"Unique entries   : {saved_entries}")
+    print(f"Misses           : {total - recognized_hits}")
 
 
 def main() -> None:

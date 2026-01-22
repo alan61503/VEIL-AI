@@ -2,21 +2,39 @@
 
 from collections import deque
 import re
-from typing import Iterable, List
+from pathlib import Path
+from typing import Any, Iterable, List, Optional, Tuple
 
 import cv2
-import easyocr
+
+try:  # EasyOCR is optional when Tesseract is available
+    import easyocr
+except ImportError:  # pragma: no cover - optional dependency
+    easyocr = None
+
+try:  # Tesseract-based OCR for lightweight deployments
+    import pytesseract
+    from pytesseract import Output as TesseractOutput
+except ImportError:  # pragma: no cover - optional dependency
+    pytesseract = None
+    TesseractOutput = None
 
 from config import (
     MIN_OCR_CONFIDENCE,
     MIN_PLATE_LENGTH,
+    OCR_ENGINE,
+    OCR_LOOSE_FALLBACK,
+    OCR_LOOSE_MIN_CONFIDENCE,
+    OCR_LOOSE_MIN_LENGTH,
     PLATE_MAX_LENGTH,
     PLATE_MIN_DIGITS,
     PLATE_REGEX,
     PLATE_REQUIRE_REGEX,
+    TESSERACT_CMD,
+    TESSERACT_LANG,
+    TESSERACT_OEM,
+    TESSERACT_PSM,
 )
-
-reader = easyocr.Reader(['en'], gpu=False)
 PLATE_PATTERN = re.compile(PLATE_REGEX) if PLATE_REGEX else None
 PLATE_GROUP_PATTERN = re.compile(r"^([A-Z]{2})([0-9]{1,2})([A-Z]{1,3})([0-9]{3,4})$") if PLATE_REGEX else None
 ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -129,6 +147,43 @@ NUMBER_CHAR_FIX = {
     "I": "1",
     "L": "1",
 }
+
+_ocr_engine = OCR_ENGINE.lower()
+USE_TESSERACT = pytesseract is not None and _ocr_engine == "tesseract"
+if USE_TESSERACT:
+    if TESSERACT_CMD:
+        pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+    else:
+        common_paths = [
+            Path("C:/Program Files/Tesseract-OCR/tesseract.exe"),
+            Path("C:/Program Files (x86)/Tesseract-OCR/tesseract.exe"),
+        ]
+        for candidate in common_paths:
+            if candidate.exists():
+                pytesseract.pytesseract.tesseract_cmd = str(candidate)
+                break
+
+if _ocr_engine == "tesseract" and not USE_TESSERACT:
+    print("[OCR] pytesseract not available; falling back to EasyOCR.")
+    _ocr_engine = "easyocr"
+    USE_TESSERACT = False
+elif USE_TESSERACT:
+    try:
+        pytesseract.get_tesseract_version()
+    except Exception as exc:  # pragma: no cover - runtime environment issue
+        print("[OCR] Tesseract binary not found, falling back to EasyOCR.", exc)
+        USE_TESSERACT = False
+        _ocr_engine = "easyocr"
+
+_easyocr_reader: Optional[Any] = None
+if not USE_TESSERACT:
+    if easyocr is None:
+        raise ImportError(
+            "EasyOCR is required when pytesseract is unavailable. Install easyocr or set OCR_ENGINE=tesseract."
+        )
+    _easyocr_reader = easyocr.Reader(['en'], gpu=False)
+
+_TESSERACT_CONFIG = f"--psm {TESSERACT_PSM} --oem {TESSERACT_OEM} -c tessedit_char_whitelist={ALLOWLIST}"
 
 
 def _scale_variant(img):
@@ -448,11 +503,19 @@ def _basic_plate_heuristics(text: str, digit_count: int) -> bool:
 
 
 def _read_variant(img) -> List[tuple[float, str]]:
+    if USE_TESSERACT:
+        return _read_variant_tesseract(img)
+    return _read_variant_easyocr(img)
+
+
+def _read_variant_easyocr(img) -> List[tuple[float, str]]:
     hits: List[tuple[float, str]] = []
     line_entries: List[dict] = []
-    results = reader.readtext(img, detail=1, allowlist=ALLOWLIST)
-    height = img.shape[0] if len(img.shape) > 1 else 0
-    line_gap = max(12.0, height * LINE_GAP_FRACTION)
+    if _easyocr_reader is None:
+        raise RuntimeError("EasyOCR reader not initialized")
+    results = _easyocr_reader.readtext(img, detail=1, allowlist=ALLOWLIST)
+    img_height = img.shape[0] if len(img.shape) > 1 else 0
+    line_gap = max(12.0, img_height * LINE_GAP_FRACTION)
 
     for bbox, text, conf in results:
         cleaned = _clean_text(text)
@@ -476,14 +539,112 @@ def _read_variant(img) -> List[tuple[float, str]]:
 
     hits.extend(_merge_multiline(line_entries, line_gap))
 
-    # Skip paragraph-mode fallback when strict regex is required to avoid loose text
-    if not PLATE_REQUIRE_REGEX:
-        for text in reader.readtext(img, detail=0, paragraph=True):
+    # Allow paragraph-mode fallback when strict regex is disabled or loose fallback is enabled
+    if not PLATE_REQUIRE_REGEX or OCR_LOOSE_FALLBACK:
+        for text in _easyocr_reader.readtext(img, detail=0, paragraph=True):
             cleaned = _clean_text(text)
             if cleaned:
-                hits.append((PARAGRAPH_FALLBACK_CONF, cleaned))
+                conf = PARAGRAPH_FALLBACK_CONF
+                if conf >= OCR_LOOSE_MIN_CONFIDENCE or len(cleaned) >= OCR_LOOSE_MIN_LENGTH:
+                    hits.append((conf, cleaned))
 
     return sorted(hits, key=lambda item: item[0], reverse=True)
+
+
+def _read_variant_tesseract(img) -> List[tuple[float, str]]:
+    if pytesseract is None or TesseractOutput is None:
+        return []
+
+    hits: List[tuple[float, str]] = []
+
+    for prepared in _tesseract_variants(img):
+        line_entries: List[dict] = []
+        data = pytesseract.image_to_data(
+            prepared,
+            lang=TESSERACT_LANG,
+            config=_TESSERACT_CONFIG,
+            output_type=TesseractOutput.DICT,
+        )
+
+        img_height = prepared.shape[0] if len(prepared.shape) > 1 else 0
+        line_gap = max(12.0, img_height * LINE_GAP_FRACTION)
+        left_list = data.get("left", [])
+        top_list = data.get("top", [])
+        width_list = data.get("width", [])
+        height_list = data.get("height", [])
+
+        for idx, raw_text in enumerate(data.get("text", [])):
+            cleaned = _clean_text(raw_text)
+            if not cleaned:
+                continue
+
+            try:
+                conf_raw = float(data["conf"][idx])
+            except (KeyError, ValueError, TypeError):
+                conf_raw = -1.0
+
+            if conf_raw < 0:
+                continue
+
+            conf = min(1.0, max(conf_raw / 100.0, 0.0))
+            if conf < MIN_OCR_CONFIDENCE * 0.6 and len(cleaned) < 4:
+                if not OCR_LOOSE_FALLBACK or conf < OCR_LOOSE_MIN_CONFIDENCE:
+                    continue
+
+            hits.append((conf, cleaned))
+
+            left = left_list[idx] if idx < len(left_list) else 0
+            top = top_list[idx] if idx < len(top_list) else 0
+            width = width_list[idx] if idx < len(width_list) else 0
+            height_box = height_list[idx] if idx < len(height_list) else 0
+            center_x = left + (width / 2.0)
+            center_y = top + (height_box / 2.0)
+            line_entries.append({"x": center_x, "y": center_y, "conf": conf, "text": cleaned})
+
+        hits.extend(_merge_multiline(line_entries, line_gap))
+        if hits:
+            break
+
+    return sorted(hits, key=lambda item: item[0], reverse=True)
+
+
+def _tesseract_variants(img) -> List:
+    scaled = _scale_variant(img)
+    if scaled.ndim == 2:
+        gray = scaled
+    else:
+        gray = cv2.cvtColor(scaled, cv2.COLOR_BGR2GRAY)
+
+    variants = []
+    largest_dim = max(gray.shape[:2]) if gray.size else 1
+    target_dim = 180
+    scale = target_dim / float(largest_dim)
+    if scale < 1.5:
+        scale = 1.5
+    upscale = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    blur = cv2.GaussianBlur(upscale, (3, 3), 0)
+    adaptive = cv2.adaptiveThreshold(
+        blur,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        2,
+    )
+    otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+
+    morph = cv2.morphologyEx(adaptive, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
+
+    for candidate in [upscale, adaptive, cv2.bitwise_not(adaptive), otsu, morph]:
+        if candidate is None:
+            continue
+        if candidate.ndim == 2:
+            rgb = cv2.cvtColor(candidate, cv2.COLOR_GRAY2RGB)
+        else:
+            rgb = cv2.cvtColor(candidate, cv2.COLOR_BGR2RGB)
+        variants.append(rgb)
+
+    return variants or [cv2.cvtColor(upscale, cv2.COLOR_GRAY2RGB)]
 
 
 def _merge_multiline(entries: List[dict], line_gap: float) -> List[tuple[float, str]]:
@@ -567,6 +728,28 @@ def _select_best(candidates: List[tuple[float, str]]):
     return max(candidates, key=lambda c: _candidate_score(c[1], c[0]))
 
 
+def _select_best_loose(candidates: List[tuple[float, str]]):
+    if not candidates:
+        return None
+
+    filtered: List[tuple[float, str]] = []
+    for conf, text in candidates:
+        cleaned = _clean_text(text)
+        if not cleaned:
+            continue
+        if len(cleaned) < OCR_LOOSE_MIN_LENGTH:
+            continue
+        if conf < OCR_LOOSE_MIN_CONFIDENCE:
+            continue
+        filtered.append((conf, cleaned))
+
+    if not filtered:
+        return None
+
+    best_conf, best_text = max(filtered, key=lambda c: (c[0], len(c[1])))
+    return best_text, best_conf
+
+
 def _combine_candidates(candidates: List[tuple[float, str]]):
     if len(candidates) < 2:
         return None
@@ -588,7 +771,7 @@ def _combine_candidates(candidates: List[tuple[float, str]]):
             corrected = _post_correct(combined_text)
             score = _candidate_score(corrected, conf)
             if not best_score or score > best_score:
-                best = (corrected, conf)
+                best = (conf, corrected)
                 best_score = score
 
     return best
@@ -604,23 +787,20 @@ def read_plate(plate_img):
 
     filtered = [c for c in candidates if _valid_candidate(c[1])]
     choice = _select_best(filtered) if filtered else None
-    combined = None
-
     if choice:
         finalized = _finalize_result(choice)
         if finalized:
             return finalized
 
-        combined = _combine_candidates(candidates)
-        if combined:
-            combined_final = _finalize_result((combined[1], combined[0]))
-            if combined_final:
-                return combined_final
-        return None
-
     combined = _combine_candidates(candidates)
     if combined:
-        return _finalize_result((combined[1], combined[0]))
+        finalized = _finalize_result(combined)
+        if finalized:
+            return finalized
+    if OCR_LOOSE_FALLBACK:
+        loose = _select_best_loose(candidates)
+        if loose:
+            return loose
     return None
 
 

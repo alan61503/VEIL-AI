@@ -8,7 +8,7 @@ CAMERA_SOURCE = int(os.getenv("CAMERA_SOURCE", 0))  # 0 = laptop webcam, later P
 DEVICE_ID = os.getenv("DEVICE_ID", "V.E.I.L_01")  # unique device identifier
 
 
-CLOUD_ENABLED = os.getenv("CLOUD_ENABLED", "true").lower() == "true"
+CLOUD_ENABLED = os.getenv("CLOUD_ENABLED", "false").lower() == "true"
 CLOUD_PROVIDER = os.getenv("CLOUD_PROVIDER", "firebase")
 CLOUD_ENDPOINT = os.getenv("CLOUD_ENDPOINT", "https://example.com/api/vehicles")
 CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "CHANGE_ME")
@@ -52,6 +52,15 @@ PLATE_REQUIRE_REGEX = os.getenv("PLATE_REQUIRE_REGEX", "true").lower() == "true"
 MIN_OCR_CONFIDENCE = float(os.getenv("MIN_OCR_CONFIDENCE", "0.45"))
 MIN_PLATE_HITS = int(os.getenv("MIN_PLATE_HITS", "2"))
 
-ENTRY_DEDUP_WINDOW_SECONDS = int(os.getenv("ENTRY_DEDUP_WINDOW_SECONDS", "4"))
+OCR_LOOSE_FALLBACK = os.getenv("OCR_LOOSE_FALLBACK", "true").lower() == "true"
+OCR_LOOSE_MIN_LENGTH = int(os.getenv("OCR_LOOSE_MIN_LENGTH", "4"))
+OCR_LOOSE_MIN_CONFIDENCE = float(os.getenv("OCR_LOOSE_MIN_CONFIDENCE", "0.2"))
+
+ENTRY_DEDUP_WINDOW_SECONDS = int(os.getenv("ENTRY_DEDUP_WINDOW_SECONDS", "0"))
 ENTRY_DEDUP_SIMILARITY = float(os.getenv("ENTRY_DEDUP_SIMILARITY", "0.92"))
+OCR_ENGINE = os.getenv("OCR_ENGINE", "easyocr").lower()
+TESSERACT_CMD = os.getenv("TESSERACT_CMD", "")
+TESSERACT_LANG = os.getenv("TESSERACT_LANG", "eng")
+TESSERACT_PSM = os.getenv("TESSERACT_PSM", "7")
+TESSERACT_OEM = os.getenv("TESSERACT_OEM", "1")
 

@@ -43,11 +43,11 @@ def _remember_plate(plate: str, timestamp: datetime) -> None:
     recent_entries.append((plate, timestamp))
 
 
-def vehicle_entry(plate: str, vehicle_type: str) -> Dict[str, Any]:
+def vehicle_entry(plate: str, vehicle_type: str, dedupe_enabled: bool = True) -> Dict[str, Any]:
     now = datetime.now()
     entry_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    if _is_duplicate_plate(plate, now):
+    if dedupe_enabled and _is_duplicate_plate(plate, now):
         print(
             f"[ENTRY:DEDUP] {plate} ignored (similar plate seen within {ENTRY_DEDUP_WINDOW_SECONDS}s)"
         )
